@@ -33,16 +33,18 @@ func DecodePluginData(dataMap map[string]string) (data PluginData) {
 	data.Created = time.Unix(created, 0)
 	data.ID = dataMap["issue_id"]
 	data.Key = dataMap["issue_key"]
+	data.RequestReason = dataMap["request_reason"]
 	return
 }
 
 func EncodePluginData(data PluginData) access.PluginDataMap {
 	return access.PluginDataMap{
-		"issue_id":  data.ID,
-		"issue_key": data.Key,
-		"user":      data.User,
-		"roles":     strings.Join(data.Roles, ","),
-		"created":   fmt.Sprintf("%d", data.Created.Unix()),
+		"issue_id":       data.ID,
+		"issue_key":      data.Key,
+		"user":           data.User,
+		"roles":          strings.Join(data.Roles, ","),
+		"created":        fmt.Sprintf("%d", data.Created.Unix()),
+		"request_reason": data.RequestReason,
 	}
 }
 
