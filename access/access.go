@@ -100,6 +100,8 @@ type Request struct {
 	// SystemAnnotations is a set of programmatically generated annotations attached
 	// to pending access requests by teleport.
 	SystemAnnotations map[string][]string
+	// SuggestedReviewers is a set of usernames which are subjects to review the request.
+	SuggestedReviewers []string
 }
 
 type RequestStateParams struct {
@@ -438,5 +440,6 @@ func requestFromV3(req *services.AccessRequestV3) Request {
 		ResolveReason:      req.GetResolveReason(),
 		ResolveAnnotations: req.GetResolveAnnotations(),
 		SystemAnnotations:  req.GetSystemAnnotations(),
+		SuggestedReviewers: req.GetSuggestedReviewers(),
 	}
 }
