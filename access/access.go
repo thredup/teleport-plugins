@@ -30,7 +30,8 @@ import (
 	"github.com/pborman/uuid"
 
 	"github.com/gravitational/teleport-plugins/lib"
-	"github.com/gravitational/teleport/lib/auth/proto"
+	"github.com/gravitational/teleport/api/client/proto"
+	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/trace"
 )
@@ -39,13 +40,13 @@ import (
 type State = services.RequestState
 
 // StatePending is the state of a pending request.
-const StatePending State = services.RequestState_PENDING
+const StatePending State = types.RequestState_PENDING
 
 // StateApproved is the state of an approved request.
-const StateApproved State = services.RequestState_APPROVED
+const StateApproved State = types.RequestState_APPROVED
 
 // StateDenied is the state of a denied request.
-const StateDenied State = services.RequestState_DENIED
+const StateDenied State = types.RequestState_DENIED
 
 // Op describes the operation type of an event.
 type Op = proto.Operation

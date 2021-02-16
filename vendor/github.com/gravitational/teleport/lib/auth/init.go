@@ -105,8 +105,8 @@ type InitConfig struct {
 	// Access is service controlling access to resources
 	Access services.Access
 
-	// DynamicAccess is a service that manages dynamic RBAC.
-	DynamicAccess services.DynamicAccess
+	// DynamicAccessExt is a service that manages dynamic RBAC.
+	DynamicAccessExt services.DynamicAccessExt
 
 	// Events is an event service
 	Events services.Events
@@ -343,7 +343,7 @@ func Init(cfg InitConfig, opts ...ServerOption) (*Server, error) {
 				ClusterName:  cfg.ClusterName.GetClusterName(),
 				Type:         services.UserCA,
 				SigningKeys:  [][]byte{priv},
-				SigningAlg:   services.ParseSigningAlg(sigAlg),
+				SigningAlg:   sshutils.ParseSigningAlg(sigAlg),
 				CheckingKeys: [][]byte{pub},
 				TLSKeyPairs:  []services.TLSKeyPair{{Cert: certPEM, Key: keyPEM}},
 			},
@@ -403,7 +403,7 @@ func Init(cfg InitConfig, opts ...ServerOption) (*Server, error) {
 				ClusterName:  cfg.ClusterName.GetClusterName(),
 				Type:         services.HostCA,
 				SigningKeys:  [][]byte{priv},
-				SigningAlg:   services.ParseSigningAlg(sigAlg),
+				SigningAlg:   sshutils.ParseSigningAlg(sigAlg),
 				CheckingKeys: [][]byte{pub},
 				TLSKeyPairs:  []services.TLSKeyPair{{Cert: certPEM, Key: keyPEM}},
 			},

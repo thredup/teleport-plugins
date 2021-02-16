@@ -35,6 +35,10 @@ import (
 	"time"
 
 	"github.com/gravitational/teleport"
+	"github.com/gravitational/teleport/api/client"
+	"github.com/gravitational/teleport/api/types"
+	"github.com/gravitational/teleport/api/types/wrappers"
+	"github.com/gravitational/teleport/lib/auth/u2f"
 	"github.com/gravitational/teleport/lib/backend"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/events"
@@ -47,16 +51,14 @@ import (
 	"github.com/gravitational/teleport/lib/sshutils"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
-	"github.com/gravitational/teleport/lib/wrappers"
-	"github.com/pborman/uuid"
 
 	"github.com/coreos/go-oidc/oauth2"
 	"github.com/coreos/go-oidc/oidc"
 	"github.com/gravitational/trace"
 	"github.com/jonboulle/clockwork"
+	"github.com/pborman/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	saml2 "github.com/russellhaering/gosaml2"
-	"github.com/tstranex/u2f"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -80,8 +82,8 @@ func NewServer(cfg *InitConfig, opts ...ServerOption) (*Server, error) {
 	if cfg.Access == nil {
 		cfg.Access = local.NewAccessService(cfg.Backend)
 	}
-	if cfg.DynamicAccess == nil {
-		cfg.DynamicAccess = local.NewDynamicAccessService(cfg.Backend)
+	if cfg.DynamicAccessExt == nil {
+		cfg.DynamicAccessExt = local.NewDynamicAccessService(cfg.Backend)
 	}
 	if cfg.ClusterConfiguration == nil {
 		cfg.ClusterConfiguration = local.NewClusterConfigurationService(cfg.Backend)
@@ -126,7 +128,7 @@ func NewServer(cfg *InitConfig, opts ...ServerOption) (*Server, error) {
 			Provisioner:          cfg.Provisioner,
 			Identity:             cfg.Identity,
 			Access:               cfg.Access,
-			DynamicAccess:        cfg.DynamicAccess,
+			DynamicAccessExt:     cfg.DynamicAccessExt,
 			ClusterConfiguration: cfg.ClusterConfiguration,
 			IAuditLog:            cfg.AuditLog,
 			Events:               cfg.Events,
@@ -148,7 +150,7 @@ type Services struct {
 	services.Provisioner
 	services.Identity
 	services.Access
-	services.DynamicAccess
+	services.DynamicAccessExt
 	services.ClusterConfiguration
 	services.Events
 	events.IAuditLog
@@ -350,7 +352,7 @@ func (a *Server) GetClusterCACert() (*LocalCAResponse, error) {
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	tlsCA, err := hostCA.TLSCA()
+	tlsCA, err := tlsca.FromAuthority(hostCA)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -392,7 +394,7 @@ func (a *Server) GenerateHostCert(hostPublicKey []byte, hostID, nodeName string,
 	// create and sign!
 	return a.Authority.GenerateHostCert(services.HostCertParams{
 		PrivateCASigningKey: caPrivateKey,
-		CASigningAlg:        ca.GetSigningAlg(),
+		CASigningAlg:        sshutils.GetSigningAlgName(ca),
 		PublicHostKey:       hostPublicKey,
 		HostID:              hostID,
 		NodeName:            nodeName,
@@ -449,6 +451,18 @@ type certRequest struct {
 	appPublicAddr string
 	// appClusterName is the name of the cluster this application is in.
 	appClusterName string
+	// dbService identifies the name of the database service requests will
+	// be routed to.
+	dbService string
+	// dbProtocol specifies the protocol of the database a certificate will
+	// be issued for.
+	dbProtocol string
+	// dbUser is the optional database user which, if provided, will be used
+	// as a default username.
+	dbUser string
+	// dbName is the optional database name which, if provided, will be used
+	// as a default database.
+	dbName string
 }
 
 // GenerateUserTestCerts is used to generate user certificate, used internally for tests
@@ -505,6 +519,50 @@ func (a *Server) GenerateUserAppTestCert(publicKey []byte, username string, ttl 
 		appSessionID:   uuid.New(),
 		appPublicAddr:  publicAddr,
 		appClusterName: clusterName,
+	})
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return certs.tls, nil
+}
+
+// DatabaseTestCertRequest combines parameters for generating test database
+// access certificate.
+type DatabaseTestCertRequest struct {
+	// PublicKey is the public key to sign.
+	PublicKey []byte
+	// Cluster is the Teleport cluster name.
+	Cluster string
+	// Username is the Teleport username.
+	Username string
+	// RouteToDatabase contains database routing information.
+	RouteToDatabase tlsca.RouteToDatabase
+}
+
+// GenerateDatabaseTestCert generates a database access certificate for the
+// provided parameters. Used only internally in tests.
+func (a *Server) GenerateDatabaseTestCert(req DatabaseTestCertRequest) ([]byte, error) {
+	user, err := a.Identity.GetUser(req.Username, false)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	checker, err := services.FetchRoles(user.GetRoles(), a.Access, user.GetTraits())
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	certs, err := a.generateUserCert(certRequest{
+		user:      user,
+		publicKey: req.PublicKey,
+		checker:   checker,
+		ttl:       time.Hour,
+		traits: wrappers.Traits(map[string][]string{
+			teleport.TraitLogins: {req.Username},
+		}),
+		routeToCluster: req.Cluster,
+		dbService:      req.RouteToDatabase.ServiceName,
+		dbProtocol:     req.RouteToDatabase.Protocol,
+		dbUser:         req.RouteToDatabase.Username,
+		dbName:         req.RouteToDatabase.Database,
 	})
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -576,7 +634,7 @@ func (a *Server) generateUserCert(req certRequest) (*certs, error) {
 	}
 	sshCert, err := a.Authority.GenerateUserCert(services.UserCertParams{
 		PrivateCASigningKey:   privateKey,
-		CASigningAlg:          ca.GetSigningAlg(),
+		CASigningAlg:          sshutils.GetSigningAlgName(ca),
 		PublicUserKey:         req.publicKey,
 		Username:              req.user.GetName(),
 		AllowedLogins:         allowedLogins,
@@ -612,8 +670,15 @@ func (a *Server) generateUserCert(req certRequest) (*certs, error) {
 			log.WithError(err).Debug("Failed setting default kubernetes cluster for user login (user did not provide a cluster); leaving KubernetesCluster extension in the TLS certificate empty")
 		}
 	}
+
+	// See which database names and users this user is allowed to use.
+	dbNames, dbUsers, err := req.checker.CheckDatabaseNamesAndUsers(sessionTTL, req.overrideRoleTTL)
+	if err != nil && !trace.IsNotFound(err) {
+		return nil, trace.Wrap(err)
+	}
+
 	// generate TLS certificate
-	tlsAuthority, err := ca.TLSCA()
+	tlsAuthority, err := tlsca.FromAuthority(ca)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -633,6 +698,14 @@ func (a *Server) generateUserCert(req certRequest) (*certs, error) {
 			ClusterName: req.appClusterName,
 		},
 		TeleportCluster: clusterName,
+		RouteToDatabase: tlsca.RouteToDatabase{
+			ServiceName: req.dbService,
+			Protocol:    req.dbProtocol,
+			Username:    req.dbUser,
+			Database:    req.dbName,
+		},
+		DatabaseNames: dbNames,
+		DatabaseUsers: dbUsers,
 	}
 	subject, err := identity.Subject()
 	if err != nil {
@@ -734,13 +807,13 @@ func (a *Server) PreAuthenticatedSignIn(user string, identity tlsca.Identity) (s
 	return sess.WithoutSecrets(), nil
 }
 
-func (a *Server) U2FSignRequest(user string, password []byte) (*u2f.SignRequest, error) {
+func (a *Server) U2FSignRequest(user string, password []byte) (*u2f.AuthenticateChallenge, error) {
 	cap, err := a.GetAuthPreference()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 
-	universalSecondFactor, err := cap.GetU2F()
+	u2fConfig, err := cap.GetU2F()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -751,26 +824,15 @@ func (a *Server) U2FSignRequest(user string, password []byte) (*u2f.SignRequest,
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	registration, err := a.GetU2FRegistration(user)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
 
-	challenge, err := u2f.NewChallenge(universalSecondFactor.AppID, universalSecondFactor.Facets)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	err = a.UpsertU2FSignChallenge(user, challenge)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	u2fSignReq := challenge.SignRequest(*registration)
-
-	return u2fSignReq, nil
+	return u2f.AuthenticateInit(u2f.AuthenticateInitParams{
+		AppConfig:  *u2fConfig,
+		StorageKey: user,
+		Storage:    a.Identity,
+	})
 }
 
-func (a *Server) CheckU2FSignResponse(user string, response *u2f.SignResponse) error {
+func (a *Server) CheckU2FSignResponse(user string, response *u2f.AuthenticateChallengeResponse) error {
 	// before trying to register a user, see U2F is actually setup on the backend
 	cap, err := a.GetAuthPreference()
 	if err != nil {
@@ -781,32 +843,11 @@ func (a *Server) CheckU2FSignResponse(user string, response *u2f.SignResponse) e
 		return trace.Wrap(err)
 	}
 
-	reg, err := a.GetU2FRegistration(user)
-	if err != nil {
-		return trace.Wrap(err)
-	}
-
-	counter, err := a.GetU2FRegistrationCounter(user)
-	if err != nil {
-		return trace.Wrap(err)
-	}
-
-	challenge, err := a.GetU2FSignChallenge(user)
-	if err != nil {
-		return trace.Wrap(err)
-	}
-
-	newCounter, err := reg.Authenticate(*response, *challenge, counter)
-	if err != nil {
-		return trace.Wrap(err)
-	}
-
-	err = a.UpsertU2FRegistrationCounter(user, newCounter)
-	if err != nil {
-		return trace.Wrap(err)
-	}
-
-	return nil
+	return u2f.AuthenticateVerify(u2f.AuthenticateVerifyParams{
+		Resp:       *response,
+		StorageKey: user,
+		Storage:    a.Identity,
+	})
 }
 
 // ExtendWebSession creates a new web session for a user based on a valid previous sessionID.
@@ -1152,7 +1193,7 @@ func (a *Server) GenerateServerKeys(req GenerateServerKeysRequest) (*PackedKeys,
 		}
 	}
 
-	tlsAuthority, err := ca.TLSCA()
+	tlsAuthority, err := tlsca.FromAuthority(ca)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -1165,7 +1206,7 @@ func (a *Server) GenerateServerKeys(req GenerateServerKeysRequest) (*PackedKeys,
 	// generate hostSSH certificate
 	hostSSHCert, err := a.Authority.GenerateHostCert(services.HostCertParams{
 		PrivateCASigningKey: caPrivateKey,
-		CASigningAlg:        ca.GetSigningAlg(),
+		CASigningAlg:        sshutils.GetSigningAlgName(ca),
 		PublicHostKey:       pubSSHKey,
 		HostID:              req.HostID,
 		NodeName:            req.NodeName,
@@ -1212,7 +1253,7 @@ func (a *Server) GenerateServerKeys(req GenerateServerKeysRequest) (*PackedKeys,
 		Key:        privateKeyPEM,
 		Cert:       hostSSHCert,
 		TLSCert:    hostTLSCert,
-		TLSCACerts: services.TLSCerts(ca),
+		TLSCACerts: services.GetTLSCerts(ca),
 		SSHCACerts: ca.GetCheckingKeys(),
 	}, nil
 }
@@ -1589,10 +1630,8 @@ func (a *Server) upsertRole(ctx context.Context, role services.Role) error {
 
 func (a *Server) CreateAccessRequest(ctx context.Context, req services.AccessRequest) error {
 	err := services.ValidateAccessRequest(a, req,
-		// if request is in state pending, role expansion must be applied
-		services.ExpandRoles(req.GetState().IsPending()),
-		// always apply system annotations before storing new requests
-		services.ApplySystemAnnotations(true),
+		// if request is in state pending, variable expansion must be applied
+		services.ExpandVars(req.GetState().IsPending()),
 	)
 	if err != nil {
 		return trace.Wrap(err)
@@ -1618,7 +1657,7 @@ func (a *Server) CreateAccessRequest(ctx context.Context, req services.AccessReq
 			req.SetExpiry(pexp)
 		}
 	}
-	if err := a.DynamicAccess.CreateAccessRequest(ctx, req); err != nil {
+	if err := a.DynamicAccessExt.CreateAccessRequest(ctx, req); err != nil {
 		return trace.Wrap(err)
 	}
 	err = a.emitter.EmitAuditEvent(a.closeCtx, &events.AccessRequestCreate{
@@ -1638,7 +1677,7 @@ func (a *Server) CreateAccessRequest(ctx context.Context, req services.AccessReq
 }
 
 func (a *Server) SetAccessRequestState(ctx context.Context, params services.AccessRequestUpdate) error {
-	if err := a.DynamicAccess.SetAccessRequestState(ctx, params); err != nil {
+	if err := a.DynamicAccessExt.SetAccessRequestState(ctx, params); err != nil {
 		return trace.Wrap(err)
 	}
 	event := &events.AccessRequestCreate{
@@ -1655,7 +1694,7 @@ func (a *Server) SetAccessRequestState(ctx context.Context, params services.Acce
 		Roles:        params.Roles,
 	}
 
-	if delegator := getDelegator(ctx); delegator != "" {
+	if delegator := client.GetDelegator(ctx); delegator != "" {
 		event.Delegator = delegator
 	}
 
@@ -1672,6 +1711,30 @@ func (a *Server) SetAccessRequestState(ctx context.Context, params services.Acce
 		log.WithError(err).Warn("Failed to emit access request update event.")
 	}
 	return trace.Wrap(err)
+}
+
+func (a *Server) SubmitAccessReview(ctx context.Context, params types.AccessReviewSubmission) (services.AccessRequest, error) {
+	// set up a checker for the review author
+	checker, err := services.NewReviewPermissionChecker(a, params.Review.Author)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	// don't bother continuing if the author has no allow directives
+	if !checker.HasAllowDirectives() {
+		return nil, trace.AccessDenied("user %q cannot submit reviews", params.Review.Author)
+	}
+
+	// final permission checks and review application must be done by the local backend
+	// service, as their validity depends upon optimistic locking.
+	req, err := a.DynamicAccessExt.ApplyAccessReview(ctx, params, checker)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	// TODO(fspmarshall): emit audit event here
+
+	return req, nil
 }
 
 func (a *Server) GetAccessCapabilities(ctx context.Context, req services.AccessCapabilitiesRequest) (*services.AccessCapabilities, error) {
@@ -1839,6 +1902,18 @@ func (a *Server) GetAppServers(ctx context.Context, namespace string, opts ...se
 // GetAppSession is a part of the auth.AccessPoint implementation.
 func (a *Server) GetAppSession(ctx context.Context, req services.GetAppSessionRequest) (services.WebSession, error) {
 	return a.GetCache().GetAppSession(ctx, req)
+}
+
+// GetDatabaseServers returns all registers database proxy servers.
+func (a *Server) GetDatabaseServers(ctx context.Context, namespace string, opts ...types.MarshalOption) ([]types.DatabaseServer, error) {
+	return a.GetCache().GetDatabaseServers(ctx, namespace, opts...)
+}
+
+// WithClock is a functional server option that sets the server's clock
+func WithClock(clock clockwork.Clock) func(*Server) {
+	return func(s *Server) {
+		s.clock = clock
+	}
 }
 
 // authKeepAliver is a keep aliver using auth server directly

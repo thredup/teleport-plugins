@@ -3,8 +3,11 @@ module github.com/gravitational/teleport-plugins
 go 1.14
 
 require (
+	cloud.google.com/go/firestore v1.1.1 // indirect
+	cloud.google.com/go/pubsub v1.2.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 // indirect
 	github.com/Azure/go-autorest/autorest v0.11.10 // indirect
+	github.com/HdrHistogram/hdrhistogram-go v0.9.1-0.20201006155429-aada4ab574ea // indirect
 	github.com/Masterminds/semver/v3 v3.1.0 // indirect
 	github.com/Masterminds/squirrel v1.4.0 // indirect
 	github.com/Microsoft/go-winio v0.4.9 // indirect
@@ -22,7 +25,7 @@ require (
 	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/blevesearch/bleve v1.0.9 // indirect
 	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
-	github.com/boombuler/barcode v0.0.0-20161226211916-fe0f26ff6d26 // indirect
+	github.com/boombuler/barcode v1.0.1 // indirect
 	github.com/cjbassi/drawille-go v0.1.0 // indirect
 	github.com/coreos/go-oidc v0.0.3 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
@@ -54,29 +57,32 @@ require (
 	github.com/go-redis/redis v6.15.9+incompatible // indirect
 	github.com/go-resty/resty/v2 v2.3.0
 	github.com/go-sql-driver/mysql v1.5.0 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/gokyle/hotp v0.0.0-20160218004637-c180d57d286b // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
 	github.com/golang/mock v1.4.4 // indirect
+	github.com/golang/protobuf v1.4.3 // indirect
 	github.com/google/go-cmp v0.5.2 // indirect
 	github.com/google/go-querystring v1.0.0
 	github.com/google/gops v0.3.1 // indirect
 	github.com/google/martian/v3 v3.0.0 // indirect
 	github.com/google/pprof v0.0.0-20200708004538-1a94d8640e99 // indirect
+	github.com/google/uuid v1.2.0 // indirect
 	github.com/gopherjs/gopherjs v0.0.0-20200217142428-fce0ec30dd00 // indirect
 	github.com/gorilla/handlers v1.4.2 // indirect
 	github.com/gorilla/mux v1.7.4 // indirect
 	github.com/gorilla/schema v1.1.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
-	github.com/gravitational/configure v0.0.0-20160909185025-1db4b84fe9db // indirect
+	github.com/gravitational/configure v0.0.0-20180808141939-c3428bd84c23 // indirect
 	github.com/gravitational/form v0.0.0-20151109031454-c4048f792f70 // indirect
 	github.com/gravitational/kingpin v2.1.11-0.20190130013101-742f2714c145+incompatible
 	github.com/gravitational/license v0.0.0-20180912170534-4f189e3bd6e3 // indirect
 	github.com/gravitational/oxy v0.0.0-20200916204440-3eb06d921a1d // indirect
 	github.com/gravitational/reporting v0.0.0-20180907002058-ac7b85c75c4c // indirect
 	github.com/gravitational/roundtrip v1.0.0 // indirect
-	github.com/gravitational/teleport v1.3.3-0.20201231222847-46679fb34462
-	github.com/gravitational/trace v1.1.6
+	github.com/gravitational/teleport v1.3.3-0.20210201193310-90b61cab3bd0
+	github.com/gravitational/trace v1.1.14
 	github.com/gravitational/ttlmap v0.0.0-20171116003245-91fd36b9004c // indirect
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
 	github.com/h2non/go-is-svg v0.0.0-20160927212452-35e8c4b0612c // indirect
@@ -93,11 +99,13 @@ require (
 	github.com/icrowley/fake v0.0.0-20180203215853-4178557ae428 // indirect
 	github.com/imdario/mergo v0.3.5 // indirect
 	github.com/iovisor/gobpf v0.0.1 // indirect
+	github.com/jackc/pgconn v1.7.0 // indirect
+	github.com/jackc/pgproto3/v2 v2.0.7-0.20201117225705-88b6398594fc // indirect
 	github.com/jaytaylor/html2text v0.0.0-20200412013138-3577fbdbcff7 // indirect
 	github.com/jhump/protoreflect v1.6.0 // indirect
 	github.com/jmhodges/levigo v1.0.0 // indirect
 	github.com/johannesboyne/gofakes3 v0.0.0-20191228161223-9aee1c78a252 // indirect
-	github.com/jonboulle/clockwork v0.2.1
+	github.com/jonboulle/clockwork v0.2.2
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/jstemmer/go-junit-report v0.9.1 // indirect
 	github.com/julienschmidt/httprouter v1.3.0
@@ -145,15 +153,15 @@ require (
 	github.com/pelletier/go-toml v1.8.0
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/poy/onpar v1.0.1 // indirect
-	github.com/pquerna/otp v0.0.0-20160912161815-54653902c20e // indirect
+	github.com/pquerna/otp v1.3.0 // indirect
 	github.com/prometheus/client_golang v1.7.1 // indirect
 	github.com/prometheus/common v0.12.0 // indirect
 	github.com/reflog/dateconstraints v0.2.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20190728182440-6a916e37a237 // indirect
 	github.com/rs/cors v1.7.0 // indirect
 	github.com/rudderlabs/analytics-go v3.2.1+incompatible // indirect
+	github.com/russellhaering/gosaml2 v0.6.0 // indirect
 	github.com/russellhaering/goxmldsig v1.1.0 // indirect
-	github.com/satori/go.uuid v1.1.1-0.20170321230731-5bf94b69c6b6 // indirect
 	github.com/segmentio/backo-go v0.0.0-20200129164019-23eae7c10bd3 // indirect
 	github.com/sergi/go-diff v1.1.0 // indirect
 	github.com/shabbyrobe/gocovmerge v0.0.0-20190829150210-3e036491d500 // indirect
@@ -169,7 +177,6 @@ require (
 	github.com/throttled/throttled v2.2.5+incompatible // indirect
 	github.com/tinylib/msgp v1.1.2 // indirect
 	github.com/trivago/tgo v1.0.7 // indirect
-	github.com/tstranex/u2f v0.0.0-20160508205855-eb799ce68da4 // indirect
 	github.com/tylerb/graceful v1.2.15 // indirect
 	github.com/uber/jaeger-client-go v2.25.0+incompatible // indirect
 	github.com/uber/jaeger-lib v2.2.0+incompatible // indirect
@@ -177,19 +184,21 @@ require (
 	github.com/vulcand/predicate v1.1.0 // indirect
 	github.com/wiggin77/srslog v1.0.1 // indirect
 	github.com/willf/bitset v1.1.11 // indirect
+	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	github.com/xtgo/uuid v0.0.0-20140804021211-a0b114877d4c // indirect
 	github.com/ziutek/mymysql v1.5.4 // indirect
 	go.etcd.io/bbolt v1.3.5
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200306183522-221f0cc107cb // indirect
 	go.opencensus.io v0.22.4 // indirect
 	go.uber.org/zap v1.15.0 // indirect
-	golang.org/x/crypto v0.0.0-20201002170205-7f63de1d35b0
+	golang.org/x/crypto v0.0.0-20201221181555-eec23a3978ad
 	golang.org/x/exp v0.0.0-20200224162631-6cc2880d07d6 // indirect
 	golang.org/x/image v0.0.0-20200801110659-972c09e46d76 // indirect
 	golang.org/x/lint v0.0.0-20200302205851-738671d3881b // indirect
-	golang.org/x/net v0.0.0-20201031054903-ff519b6c9102 // indirect
+	golang.org/x/net v0.0.0-20210119194325-5f4716e94777 // indirect
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d // indirect
-	golang.org/x/tools v0.0.0-20200818005847-188abfa75333 // indirect
+	golang.org/x/sys v0.0.0-20210124154548-22da62e12c0c // indirect
+	golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	google.golang.org/api v0.22.0 // indirect
 	google.golang.org/appengine v1.6.6 // indirect
@@ -197,14 +206,18 @@ require (
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
 	gopkg.in/asn1-ber.v1 v1.0.0-20181015200546-f715ec2f112d // indirect
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f
-	gopkg.in/ini.v1 v1.60.0 // indirect
+	gopkg.in/ini.v1 v1.62.0 // indirect
 	gopkg.in/mail.v2 v2.3.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/olivere/elastic.v6 v6.2.34 // indirect
 	gopkg.in/resty.v1 v1.12.0
+	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
 	gotest.tools v2.2.0+incompatible // indirect
 	honnef.co/go/tools v0.0.1-2020.1.5 // indirect
+	k8s.io/apimachinery v0.20.0-alpha.1.0.20200922235617-829ed199f4e0 // indirect
+	k8s.io/client-go v0.0.0-20200827131824-5d33118d4742 // indirect
 	k8s.io/klog/v2 v2.2.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20200805222855-6aeccd4b50c6 // indirect
 	k8s.io/utils v0.0.0-20200729134348-d5654de09c73 // indirect
@@ -215,10 +228,8 @@ require (
 )
 
 replace (
-	github.com/Sirupsen/logrus => github.com/gravitational/logrus v0.10.1-0.20171120195323-8ab1e1b91d5f
 	github.com/coreos/go-oidc => github.com/gravitational/go-oidc v0.0.3
 	github.com/iovisor/gobpf => github.com/gravitational/gobpf v0.0.1
-	github.com/sirupsen/logrus => github.com/gravitational/logrus v0.10.1-0.20171120195323-8ab1e1b91d5f
 	google.golang.org/grpc => google.golang.org/grpc v1.27.0
 )
 
