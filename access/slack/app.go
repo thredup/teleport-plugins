@@ -284,19 +284,47 @@ func (a *App) tryFetchEmail(ctx context.Context, userID string) string {
 }
 
 func (a *App) onPendingRequest(ctx context.Context, req access.Request) error {
+	log := logger.Get(ctx)
 	reqData := RequestData{User: req.User, Roles: req.Roles, RequestReason: req.RequestReason}
-	slackData, err := a.bot.Post(ctx, req.ID, reqData)
-	if err != nil {
+
+	var channels []string
+	if channel := a.conf.Slack.Channel; channel != "" {
+		channels = append(channels, channel)
+	}
+	for _, direct := range a.conf.Slack.Direct {
+		if lib.IsEmail(direct) {
+			channel, err := a.bot.LookupDirectChannelByEmail(ctx, direct)
+			if err != nil {
+				log.WithError(err).Errorf("Failed to load user profile by email %q", direct)
+				continue
+			}
+			channels = append(channels, channel)
+		} else {
+			// Treat `direct` as a channel ID.
+			channels = append(channels, direct)
+		}
+	}
+
+	if len(channels) == 0 {
+		return trace.Errorf("no channel to post")
+	}
+
+	slackData, errs := a.bot.Broadcast(ctx, channels, req.ID, reqData)
+	if len(slackData) == 0 && len(errs) > 0 {
+		return trace.Wrap(errs[0])
+	}
+
+	for _, err := range errs {
+		log.WithError(err).Error("Failed to post to Slack")
+	}
+
+	log.Info("Successfully posted to Slack")
+
+	if err := a.setPluginData(ctx, req.ID, PluginData{reqData, slackData}); err != nil {
 		return trace.Wrap(err)
 	}
-	logger.Get(ctx).WithFields(logger.Fields{
-		"slack_channel":   slackData.ChannelID,
-		"slack_timestamp": slackData.Timestamp,
-	}).Info("Successfully posted to Slack")
 
-	err = a.setPluginData(ctx, req.ID, PluginData{reqData, slackData})
-
-	return trace.Wrap(err)
+	return nil
 }
 
 func (a *App) onDeletedRequest(ctx context.Context, req access.Request) error {
@@ -313,7 +341,7 @@ func (a *App) onDeletedRequest(ctx context.Context, req access.Request) error {
 	}
 
 	reqData, slackData := pluginData.RequestData, pluginData.SlackData
-	if len(slackData.ChannelID) == 0 || len(slackData.Timestamp) == 0 {
+	if len(slackData) == 0 {
 		log.Warn("Plugin data is either missing or expired")
 		return nil
 	}

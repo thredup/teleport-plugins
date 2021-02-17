@@ -23,7 +23,6 @@ const slackHTTPTimeout = 10 * time.Second
 type Bot struct {
 	client      *slack.Client
 	respClient  *resty.Client
-	channel     string
 	clusterName string
 	notifyOnly  bool
 }
@@ -52,34 +51,60 @@ func NewBot(conf SlackConfig) *Bot {
 
 	return &Bot{
 		client:     slack.New(conf.Token, slackOptions...),
-		channel:    conf.Channel,
 		respClient: respClient,
 		notifyOnly: conf.NotifyOnly,
 	}
 }
 
-// Post posts request info to Slack with action buttons.
-func (b *Bot) Post(ctx context.Context, reqID string, reqData RequestData) (data SlackData, err error) {
-	data.ChannelID, data.Timestamp, err = b.client.PostMessageContext(
-		ctx,
-		b.channel,
-		slack.MsgOptionBlocks(b.msgSections(reqID, reqData, "PENDING")...),
-	)
-	err = trace.Wrap(err)
+// Broadcast posts request info to Slack with action buttons.
+func (b *Bot) Broadcast(ctx context.Context, channels []string, reqID string, reqData RequestData) (SlackData, []error) {
+	var data SlackData
+	var errors []error
+	for _, channel := range channels {
+		channelID, timestamp, err := b.client.PostMessageContext(
+			ctx,
+			channel,
+			slack.MsgOptionBlocks(b.msgSections(reqID, reqData, "PENDING")...),
+		)
+		if err != nil {
+			errors = append(errors, trace.Wrap(err))
+			continue
+		}
+		data = append(data, SlackDataMessage{ChannelID: channelID, Timestamp: timestamp})
+	}
 
-	return
+	return data, errors
+}
+
+// LookupDirectChannelByEmail fetches user's id by email.
+func (b *Bot) LookupDirectChannelByEmail(ctx context.Context, email string) (string, error) {
+	user, err := b.client.GetUserByEmailContext(ctx, email)
+	if err != nil {
+		return "", trace.Wrap(err)
+	}
+	return user.ID, nil
 }
 
 // Expire updates request's Slack post with EXPIRED status and removes action buttons.
 func (b *Bot) Expire(ctx context.Context, reqID string, reqData RequestData, slackData SlackData) error {
-	_, _, _, err := b.client.UpdateMessageContext(
-		ctx,
-		slackData.ChannelID,
-		slackData.Timestamp,
-		slack.MsgOptionBlocks(b.msgSections(reqID, reqData, "EXPIRED")...),
-	)
+	var errors []error
+	for _, msg := range slackData {
+		_, _, _, err := b.client.UpdateMessageContext(
+			ctx,
+			msg.ChannelID,
+			msg.Timestamp,
+			slack.MsgOptionBlocks(b.msgSections(reqID, reqData, "EXPIRED")...),
+		)
+		if err != nil {
+			errors = append(errors, trace.Wrap(err))
+		}
+	}
 
-	return trace.Wrap(err)
+	if len(errors) > 0 {
+		return errors[0]
+	}
+
+	return nil
 }
 
 // GetUserEmail takes a Slack User ID as input, and returns their

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/user"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -282,8 +283,9 @@ func (s *SlackSuite) TestSlackMessagePosting(c *C) {
 	pluginData := s.checkPluginData(c, request.GetName())
 	msg, err := s.fakeSlack.CheckNewMessage(s.ctx)
 	c.Assert(err, IsNil)
-	c.Assert(pluginData.Timestamp, Equals, msg.Timestamp)
-	c.Assert(pluginData.ChannelID, Equals, msg.Channel)
+	c.Assert(len(pluginData.SlackData), Equals, 1)
+	c.Assert(pluginData.SlackData[0].Timestamp, Equals, msg.Timestamp)
+	c.Assert(pluginData.SlackData[0].ChannelID, Equals, msg.Channel)
 
 	actionBlock := findActionBlock(msg, "approve_or_deny")
 	c.Assert(actionBlock, NotNil)
@@ -301,17 +303,17 @@ func (s *SlackSuite) TestSlackMessagePosting(c *C) {
 func (s *SlackSuite) TestSlackMessagePostingWithRequestReason(c *C) {
 	s.startApp(c)
 	auth := s.teleport.Process.GetAuthServer()
+
 	request, err := services.NewAccessRequest(s.me.Username, "admin")
 	c.Assert(err, IsNil)
 	request.SetRequestReason("because of")
 	err = auth.CreateAccessRequest(s.ctx, request)
 	c.Assert(err, IsNil)
-	pluginData := s.checkPluginData(c, request.GetName())
+
+	s.checkPluginData(c, request.GetName())
 
 	msg, err := s.fakeSlack.CheckNewMessage(s.ctx)
 	c.Assert(err, IsNil)
-	c.Assert(pluginData.Timestamp, Equals, msg.Timestamp)
-	c.Assert(pluginData.ChannelID, Equals, msg.Channel)
 
 	sectionBlock, ok := msg.Blocks.BlockSet[1].(*slack.SectionBlock)
 	c.Assert(ok, Equals, true)
@@ -328,11 +330,56 @@ func (s *SlackSuite) TestSlackMessagePostingReadonly(c *C) {
 	pluginData := s.checkPluginData(c, request.GetName())
 	msg, err := s.fakeSlack.CheckNewMessage(s.ctx)
 	c.Assert(err, IsNil)
-	c.Assert(pluginData.Timestamp, Equals, msg.Timestamp)
-	c.Assert(pluginData.ChannelID, Equals, msg.Channel)
+	c.Assert(pluginData.SlackData[0].Timestamp, Equals, msg.Timestamp)
+	c.Assert(pluginData.SlackData[0].ChannelID, Equals, msg.Channel)
 
 	actionBlock := findActionBlock(msg, "approve_or_deny")
 	c.Assert(actionBlock, IsNil, Commentf("there should be no buttons block in readonly mode"))
+}
+
+func (s *SlackSuite) TestSlackMessagePostingDirect(c *C) {
+	user1 := s.fakeSlack.StoreUser(slack.User{
+		Profile: slack.UserProfile{
+			Email: "user1@example.com",
+		},
+	})
+	user2 := s.fakeSlack.StoreUser(slack.User{
+		Profile: slack.UserProfile{
+			Email: "user2@example.com",
+		},
+	})
+	s.appConfig.Slack.Channel = ""
+	s.appConfig.Slack.Direct = []string{user1.ID, user2.Profile.Email}
+	s.startApp(c)
+	request := s.createAccessRequest(c)
+	pluginData := s.checkPluginData(c, request.GetName())
+	c.Assert(len(pluginData.SlackData), Equals, 2)
+
+	var (
+		msg      slack.Msg
+		messages []slack.Msg
+		err      error
+	)
+
+	messageSet := make(SlackDataMessageSet)
+	msg, err = s.fakeSlack.CheckNewMessage(s.ctx)
+	c.Assert(err, IsNil)
+	messageSet.Add(SlackDataMessage{ChannelID: msg.Channel, Timestamp: msg.Timestamp})
+	messages = append(messages, msg)
+
+	msg, err = s.fakeSlack.CheckNewMessage(s.ctx)
+	c.Assert(err, IsNil)
+	messageSet.Add(SlackDataMessage{ChannelID: msg.Channel, Timestamp: msg.Timestamp})
+	messages = append(messages, msg)
+
+	c.Assert(len(messageSet), Equals, 2)
+	c.Assert(messageSet.Contains(pluginData.SlackData[0]), Equals, true)
+	c.Assert(messageSet.Contains(pluginData.SlackData[1]), Equals, true)
+
+	sort.Sort(SlackMessageSlice(messages))
+
+	c.Assert(messages[0].Channel, Equals, user1.ID)
+	c.Assert(messages[1].Channel, Equals, user2.ID)
 }
 
 func (s *SlackSuite) TestApproval(c *C) {

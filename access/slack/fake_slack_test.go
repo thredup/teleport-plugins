@@ -54,6 +54,8 @@ func NewFakeSlack(botUser slack.User, concurrency int) *FakeSlack {
 	s.botUser = s.StoreUser(botUser)
 
 	router.POST("/chat.postMessage", func(rw http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+		rw.Header().Add("Content-Type", "application/json")
+
 		data, err := ioutil.ReadAll(r.Body)
 		panicIf(err)
 		values, err := url.ParseQuery(string(data))
@@ -87,6 +89,8 @@ func NewFakeSlack(botUser slack.User, concurrency int) *FakeSlack {
 	})
 
 	router.POST("/chat.update", func(rw http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+		rw.Header().Add("Content-Type", "application/json")
+
 		data, err := ioutil.ReadAll(r.Body)
 		panicIf(err)
 		values, err := url.ParseQuery(string(data))
@@ -119,6 +123,8 @@ func NewFakeSlack(botUser slack.User, concurrency int) *FakeSlack {
 	})
 
 	router.POST("/_response/:ts", func(rw http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+		rw.Header().Add("Content-Type", "application/json")
+
 		var payload slack.Msg
 		err := json.NewDecoder(r.Body).Decode(&payload)
 		panicIf(err)
@@ -149,6 +155,8 @@ func NewFakeSlack(botUser slack.User, concurrency int) *FakeSlack {
 	})
 
 	router.POST("/users.info", func(rw http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+		rw.Header().Add("Content-Type", "application/json")
+
 		data, err := ioutil.ReadAll(r.Body)
 		panicIf(err)
 		values, err := url.ParseQuery(string(data))
@@ -156,13 +164,37 @@ func NewFakeSlack(botUser slack.User, concurrency int) *FakeSlack {
 
 		user, found := s.GetUser(values.Get("user"))
 		if !found {
-			http.Error(rw, "", http.StatusNotFound)
+			err = json.NewEncoder(rw).Encode(&slack.SlackResponse{Ok: false, Error: "users_not_found"})
+			panicIf(err)
 			return
 		}
 
 		err = json.NewEncoder(rw).Encode(&struct {
 			User slack.User `json:"user"`
-		}{user})
+			Ok   bool       `json:"ok"`
+		}{user, true})
+		panicIf(err)
+	})
+
+	router.POST("/users.lookupByEmail", func(rw http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+		rw.Header().Add("Content-Type", "application/json")
+
+		data, err := ioutil.ReadAll(r.Body)
+		panicIf(err)
+		values, err := url.ParseQuery(string(data))
+		panicIf(err)
+
+		user, found := s.GetUserByEmail(values.Get("email"))
+		if !found {
+			err = json.NewEncoder(rw).Encode(&slack.SlackResponse{Ok: false, Error: "users_not_found"})
+			panicIf(err)
+			return
+		}
+
+		err = json.NewEncoder(rw).Encode(&struct {
+			User slack.User `json:"user"`
+			Ok   bool       `json:"ok"`
+		}{user, true})
 		panicIf(err)
 	})
 
@@ -182,8 +214,8 @@ func (s *FakeSlack) Close() {
 
 func (s *FakeSlack) StoreMessage(msg slack.Msg) slack.Msg {
 	if msg.Timestamp == "" {
-		now := s.startTime.Add(time.Now().Sub(s.startTime)) // get monotonic timestamp
-		uniq := atomic.AddUint64(&s.messageCounter, 1)      // generate uniq int to prevent races
+		now := s.startTime.Add(time.Since(s.startTime)) // get monotonic timestamp
+		uniq := atomic.AddUint64(&s.messageCounter, 1)  // generate uniq int to prevent races
 		msg.Timestamp = fmt.Sprintf("%d.%d", now.UnixNano(), uniq)
 	}
 	s.objects.Store(fmt.Sprintf("msg-%s", msg.Timestamp), msg)
@@ -203,11 +235,20 @@ func (s *FakeSlack) StoreUser(user slack.User) slack.User {
 		user.ID = fmt.Sprintf("U%d", atomic.AddUint64(&s.userIDCounter, 1))
 	}
 	s.objects.Store(fmt.Sprintf("user-%s", user.ID), user)
+	s.objects.Store(fmt.Sprintf("userByEmail-%s", user.Profile.Email), user)
 	return user
 }
 
 func (s *FakeSlack) GetUser(id string) (slack.User, bool) {
 	if obj, ok := s.objects.Load(fmt.Sprintf("user-%s", id)); ok {
+		user, ok := obj.(slack.User)
+		return user, ok
+	}
+	return slack.User{}, false
+}
+
+func (s *FakeSlack) GetUserByEmail(email string) (slack.User, bool) {
+	if obj, ok := s.objects.Load(fmt.Sprintf("userByEmail-%s", email)); ok {
 		user, ok := obj.(slack.User)
 		return user, ok
 	}
