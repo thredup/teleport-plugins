@@ -68,12 +68,15 @@ func (a *App) run(ctx context.Context) (err error) {
 	log := logger.Get(ctx)
 	log.Infof("Starting Teleport Access Slackbot %s:%s", Version, Gitref)
 
-	a.bot = NewBot(a.conf.Slack)
+	a.bot, err = NewBot(a.conf)
+	if err != nil {
+		return trace.Wrap(err)
+	}
 
 	// Create callback server providing a.onSlackCallback as a callback function.
 	a.callbackSrv, err = NewCallbackServer(a.conf.HTTP, a.conf.Slack.Secret, a.conf.Slack.NotifyOnly, a.onSlackCallback)
 	if err != nil {
-		return
+		return trace.Wrap(err)
 	}
 
 	tlsConf, err := access.LoadTLSConfig(
@@ -84,7 +87,7 @@ func (a *App) run(ctx context.Context) (err error) {
 	if trace.Unwrap(err) == access.ErrInvalidCertificate {
 		log.WithError(err).Warning("Auth client TLS configuration error")
 	} else if err != nil {
-		return
+		return trace.Wrap(err)
 	}
 	bk := backoff.DefaultConfig
 	bk.MaxDelay = time.Second * 2
@@ -98,21 +101,21 @@ func (a *App) run(ctx context.Context) (err error) {
 		}),
 	)
 	if err != nil {
-		return
+		return trace.Wrap(err)
 	}
 	if err = a.checkTeleportVersion(ctx); err != nil {
-		return
+		return trace.Wrap(err)
 	}
 
 	err = a.callbackSrv.EnsureCert()
 	if err != nil {
-		return
+		return trace.Wrap(err)
 	}
 	httpJob := a.callbackSrv.ServiceJob()
 	a.SpawnCriticalJob(httpJob)
 	httpOk, err := httpJob.WaitReady(ctx)
 	if err != nil {
-		return
+		return trace.Wrap(err)
 	}
 
 	watcherJob := access.NewWatcherJob(
@@ -123,7 +126,7 @@ func (a *App) run(ctx context.Context) (err error) {
 	a.SpawnCriticalJob(watcherJob)
 	watcherOk, err := watcherJob.WaitReady(ctx)
 	if err != nil {
-		return
+		return trace.Wrap(err)
 	}
 
 	a.mainJob.SetReady(httpOk && watcherOk)
@@ -224,7 +227,7 @@ func (a *App) onSlackCallback(ctx context.Context, cb Callback) error {
 			return trace.Errorf("cannot process not pending request: %+v", req)
 		}
 
-		userEmail := a.tryFetchEmail(logger.SetFields(ctx, logger.Fields{
+		userEmail := a.tryFetchUserEmail(logger.SetFields(ctx, logger.Fields{
 			"slack_user":    cb.User.Name,
 			"slack_channel": cb.Channel.Name,
 		}), cb.User.ID)
@@ -275,12 +278,26 @@ func (a *App) onSlackCallback(ctx context.Context, cb Callback) error {
 	return nil
 }
 
-func (a *App) tryFetchEmail(ctx context.Context, userID string) string {
+func (a *App) tryFetchUserEmail(ctx context.Context, userID string) string {
 	userEmail, err := a.bot.GetUserEmail(ctx, userID)
 	if err != nil {
 		logger.Get(ctx).WithError(err).Warning("Failed to fetch slack user email")
 	}
 	return userEmail
+}
+
+func (a *App) tryLookupDirectChannelByEmail(ctx context.Context, userEmail string) string {
+	log := logger.Get(ctx)
+	channel, err := a.bot.LookupDirectChannelByEmail(ctx, userEmail)
+	if err != nil {
+		if err.Error() == "users_not_found" {
+			log.Warningf("User with email %q is not found in Slack", userEmail)
+		} else {
+			log.WithError(err).Errorf("Failed to load user profile by email %q", userEmail)
+		}
+		return ""
+	}
+	return channel
 }
 
 func (a *App) onPendingRequest(ctx context.Context, req access.Request) error {
@@ -293,9 +310,8 @@ func (a *App) onPendingRequest(ctx context.Context, req access.Request) error {
 	}
 	for _, direct := range a.conf.Slack.Direct {
 		if lib.IsEmail(direct) {
-			channel, err := a.bot.LookupDirectChannelByEmail(ctx, direct)
-			if err != nil {
-				log.WithError(err).Errorf("Failed to load user profile by email %q", direct)
+			channel := a.tryLookupDirectChannelByEmail(ctx, direct)
+			if channel == "" {
 				continue
 			}
 			channels = append(channels, channel)
@@ -305,20 +321,54 @@ func (a *App) onPendingRequest(ctx context.Context, req access.Request) error {
 		}
 	}
 
-	if len(channels) == 0 {
-		return trace.Errorf("no channel to post")
+	var notifyChannels []string
+	if a.conf.Slack.NotifyReviewers.Enabled {
+		for _, user := range req.SuggestedReviewers {
+			email := user
+			if !lib.IsEmail(email) {
+				log.Warning("Failed to notify a suggested reviewer: %q does not look like a valid email", email)
+				continue
+			}
+			channel := a.tryLookupDirectChannelByEmail(ctx, email)
+			if channel == "" {
+				continue
+			}
+			notifyChannels = append(notifyChannels, channel)
+		}
 	}
 
-	slackData, errs := a.bot.Broadcast(ctx, channels, req.ID, reqData)
-	if len(slackData) == 0 && len(errs) > 0 {
-		return trace.Wrap(errs[0])
+	if len(channels) == 0 && len(notifyChannels) == 0 {
+		log.Warning("no channel to post")
+		return nil
 	}
 
-	for _, err := range errs {
+	var slackData SlackData
+	var errors []error
+
+	if len(channels) > 0 {
+		slackData1, errors1 := a.bot.Broadcast(ctx, channels, req.ID, reqData, a.conf.Slack.NotifyOnly)
+		slackData = append(slackData, slackData1...)
+		errors = append(errors, errors1...)
+	}
+
+	if len(notifyChannels) > 0 {
+		slackData1, errors1 := a.bot.Broadcast(ctx, notifyChannels, req.ID, reqData, true)
+		slackData = append(slackData, slackData1...)
+		errors = append(errors, errors1...)
+	}
+
+	if len(slackData) == 0 && len(errors) > 0 {
+		return trace.Wrap(errors[0])
+	}
+
+	for _, data := range slackData {
+		log.WithFields(logger.Fields{"slack_channel": data.ChannelID, "slack_timestamp": data.Timestamp}).
+			Info("Successfully posted to Slack")
+	}
+
+	for _, err := range errors {
 		log.WithError(err).Error("Failed to post to Slack")
 	}
-
-	log.Info("Successfully posted to Slack")
 
 	if err := a.setPluginData(ctx, req.ID, PluginData{reqData, slackData}); err != nil {
 		return trace.Wrap(err)

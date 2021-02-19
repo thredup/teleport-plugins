@@ -348,9 +348,11 @@ func (s *SlackSuite) TestSlackMessagePostingDirect(c *C) {
 			Email: "user2@example.com",
 		},
 	})
+
 	s.appConfig.Slack.Channel = ""
 	s.appConfig.Slack.Direct = []string{user1.ID, user2.Profile.Email}
 	s.startApp(c)
+
 	request := s.createAccessRequest(c)
 	pluginData := s.checkPluginData(c, request.GetName())
 	c.Assert(len(pluginData.SlackData), Equals, 2)
@@ -380,6 +382,64 @@ func (s *SlackSuite) TestSlackMessagePostingDirect(c *C) {
 
 	c.Assert(messages[0].Channel, Equals, user1.ID)
 	c.Assert(messages[1].Channel, Equals, user2.ID)
+}
+
+func (s *SlackSuite) TestMessagePostingToReviewers(c *C) {
+	auth := s.teleport.Process.GetAuthServer()
+
+	user1 := s.fakeSlack.StoreUser(slack.User{
+		Profile: slack.UserProfile{
+			Email: "user1@example.com",
+		},
+	})
+	user2 := s.fakeSlack.StoreUser(slack.User{
+		Profile: slack.UserProfile{
+			Email: "user2@example.com",
+		},
+	})
+
+	s.appConfig.Slack.Channel = ""
+	s.appConfig.Slack.NotifyReviewers.Enabled = true
+	s.startApp(c)
+
+	request, err := services.NewAccessRequest(s.me.Username, "admin")
+	c.Assert(err, IsNil)
+	request.SetSuggestedReviewers([]string{user2.Profile.Email, user1.Profile.Email})
+	err = auth.CreateAccessRequest(s.ctx, request)
+	c.Assert(err, IsNil)
+
+	pluginData := s.checkPluginData(c, request.GetName())
+	c.Assert(len(pluginData.SlackData), Equals, 2)
+
+	var (
+		msg      slack.Msg
+		messages []slack.Msg
+	)
+
+	messageSet := make(SlackDataMessageSet)
+	msg, err = s.fakeSlack.CheckNewMessage(s.ctx)
+	c.Assert(err, IsNil)
+	messageSet.Add(SlackDataMessage{ChannelID: msg.Channel, Timestamp: msg.Timestamp})
+	messages = append(messages, msg)
+
+	msg, err = s.fakeSlack.CheckNewMessage(s.ctx)
+	c.Assert(err, IsNil)
+	messageSet.Add(SlackDataMessage{ChannelID: msg.Channel, Timestamp: msg.Timestamp})
+	messages = append(messages, msg)
+
+	c.Assert(len(messageSet), Equals, 2)
+	c.Assert(messageSet.Contains(pluginData.SlackData[0]), Equals, true)
+	c.Assert(messageSet.Contains(pluginData.SlackData[1]), Equals, true)
+
+	sort.Sort(SlackMessageSlice(messages))
+
+	c.Assert(messages[0].Channel, Equals, user1.ID)
+	c.Assert(messages[1].Channel, Equals, user2.ID)
+
+	for _, message := range messages {
+		actionBlock := findActionBlock(message, "approve_or_deny")
+		c.Assert(actionBlock, IsNil, Commentf("there should be no buttons block in reviewer notification"))
+	}
 }
 
 func (s *SlackSuite) TestApproval(c *C) {

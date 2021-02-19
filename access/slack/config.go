@@ -23,6 +23,10 @@ type SlackConfig struct {
 	Direct     []string `toml:"direct"`
 	NotifyOnly bool     `toml:"notify_only"`
 	APIURL     string
+
+	NotifyReviewers struct {
+		Enabled bool `toml:"enabled"`
+	} `toml:"notify_reviewers"`
 }
 
 const exampleConfig = `# example slack plugin configuration TOML file
@@ -88,8 +92,8 @@ func (c *Config) CheckAndSetDefaults() error {
 	if c.Slack.Secret == "" {
 		return trace.BadParameter("missing required value slack.secret")
 	}
-	if c.Slack.Channel == "" && len(c.Slack.Direct) == 0 {
-		return trace.BadParameter("missing at least one of the required values: slack.channel or slack.direct")
+	if c.Slack.Channel == "" && len(c.Slack.Direct) == 0 && !c.Slack.NotifyReviewers.Enabled {
+		return trace.BadParameter("missing at least one of the required values: slack.channel, slack.direct or slack.notify_reviewers.enabled")
 	}
 	if c.HTTP.ListenAddr == "" {
 		c.HTTP.ListenAddr = ":8081"
