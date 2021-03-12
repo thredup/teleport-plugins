@@ -1,0 +1,13 @@
+kind: user
+metadata:
+  name: access-plugin
+spec:
+  roles: ['access-plugin']
+version: v2
+---
+kind: user
+metadata:
+  name: vladimirkocnev
+spec:
+  roles: ['foo']
+version: v2
