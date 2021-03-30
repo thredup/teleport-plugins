@@ -17,7 +17,6 @@ limitations under the License.
 package client
 
 import (
-	"bufio"
 	"crypto/x509"
 	"fmt"
 	"io"
@@ -32,6 +31,7 @@ import (
 	"github.com/gravitational/teleport/lib/auth"
 	"github.com/gravitational/teleport/lib/sshutils"
 	"github.com/gravitational/teleport/lib/utils"
+	"github.com/gravitational/teleport/lib/utils/prompt"
 	"github.com/gravitational/trace"
 
 	"github.com/sirupsen/logrus"
@@ -100,14 +100,25 @@ func NewKeyStoreCertChecker(keyStore LocalKeyStore) ssh.HostKeyCallback {
 	}
 }
 
-// NewLocalAgent reads all Teleport certificates from disk (using FSLocalKeyStore),
-// creates a LocalKeyAgent, loads all certificates into it, and returns the agent.
-func NewLocalAgent(keyDir, proxyHost, username string, useLocalSSHAgent bool) (a *LocalKeyAgent, err error) {
-	keystore, err := NewFSLocalKeyStore(keyDir)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
+func agentIsPresent() bool {
+	return os.Getenv(teleport.SSHAuthSock) != ""
+}
 
+// agentSupportsSSHCertificates checks if the running agent supports SSH certificates.
+// This detection implementation is as described in RFD 18 and works by simply checking for
+// presence of gpg-agent which is a common agent known to not support SSH certificates.
+func agentSupportsSSHCertificates() bool {
+	agent := os.Getenv(teleport.SSHAuthSock)
+	return !strings.Contains(agent, "gpg-agent")
+}
+
+func shouldAddKeysToAgent(addKeysToAgent string) bool {
+	return (addKeysToAgent == AddKeysToAgentAuto && agentSupportsSSHCertificates()) || addKeysToAgent == AddKeysToAgentOnly || addKeysToAgent == AddKeysToAgentYes
+}
+
+// NewLocalAgent reads all available credentials from the provided LocalKeyStore
+// and loads them into the local and system agent
+func NewLocalAgent(keystore LocalKeyStore, proxyHost, username string, keysOption string) (a *LocalKeyAgent, err error) {
 	a = &LocalKeyAgent{
 		log: logrus.WithFields(logrus.Fields{
 			trace.Component: teleport.ComponentKeyAgent,
@@ -119,17 +130,16 @@ func NewLocalAgent(keyDir, proxyHost, username string, useLocalSSHAgent bool) (a
 		proxyHost: proxyHost,
 	}
 
-	if useLocalSSHAgent {
+	if shouldAddKeysToAgent(keysOption) {
 		a.sshAgent = connectToSSHAgent()
 	} else {
 		log.Debug("Skipping connection to the local ssh-agent.")
-	}
 
-	// unload all teleport keys from the agent first to ensure
-	// we don't leave stale keys in the agent
-	err = a.UnloadKeys()
-	if err != nil {
-		return nil, trace.Wrap(err)
+		if !agentSupportsSSHCertificates() && agentIsPresent() {
+			log.Warn(`Certificate was not loaded into agent because the agent at SSH_AUTH_SOCK does not appear
+to support SSH certificates. To force load the certificate into the running agent, use
+the --add-keys-to-agent=yes flag.`)
+		}
 	}
 
 	// read in key for this user in proxy
@@ -252,8 +262,7 @@ func (a *LocalKeyAgent) UnloadKeys() error {
 	return nil
 }
 
-// GetKey returns the key for this user in a proxy from the filesystem keystore
-// at ~/.tsh.
+// GetKey returns the key for this user in a proxy from the backing key store.
 //
 // clusterName is an optional teleport cluster name to load kubernetes
 // certificates for.
@@ -382,22 +391,17 @@ func (a *LocalKeyAgent) checkHostKey(addr string, remote net.Addr, key ssh.Publi
 // defaultHostPromptFunc is the default host key/certificates prompt.
 func (a *LocalKeyAgent) defaultHostPromptFunc(host string, key ssh.PublicKey, writer io.Writer, reader io.Reader) error {
 	var err error
-
-	userAnswer := "no"
+	ok := false
 	if !a.noHosts[host] {
-		fmt.Fprintf(writer, "The authenticity of host '%s' can't be established. "+
-			"Its public key is:\n%s\nAre you sure you want to continue (yes/no)? ",
-			host, ssh.MarshalAuthorizedKey(key))
-
-		userAnswer, err = bufio.NewReader(reader).ReadString('\n')
+		ok, err = prompt.Confirmation(writer, reader,
+			fmt.Sprintf("The authenticity of host '%s' can't be established. Its public key is:\n%s\nAre you sure you want to continue?",
+				host,
+				ssh.MarshalAuthorizedKey(key),
+			),
+		)
 		if err != nil {
 			return trace.Wrap(err)
 		}
-		userAnswer = strings.TrimSpace(strings.ToLower(userAnswer))
-	}
-	ok, err := utils.ParseBool(userAnswer)
-	if err != nil {
-		return trace.Wrap(err)
 	}
 	if !ok {
 		return trace.BadParameter("not trusted")
@@ -408,7 +412,7 @@ func (a *LocalKeyAgent) defaultHostPromptFunc(host string, key ssh.PublicKey, wr
 // AddKey activates a new signed session key by adding it into the keystore and also
 // by loading it into the SSH agent
 func (a *LocalKeyAgent) AddKey(key *Key) (*agent.AddedKey, error) {
-	// save it to disk (usually into ~/.tsh)
+	// save it to the keystore (usually into ~/.tsh)
 	err := a.keyStore.AddKey(a.proxyHost, a.username, key)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -465,13 +469,13 @@ func (a *LocalKeyAgent) DeleteKeys() error {
 func (a *LocalKeyAgent) AuthMethods() (m []ssh.AuthMethod) {
 	// combine our certificates with external SSH agent's:
 	var signers []ssh.Signer
-	if ourCerts, _ := a.Signers(); ourCerts != nil {
-		signers = append(signers, ourCerts...)
-	}
 	if a.sshAgent != nil {
 		if sshAgentCerts, _ := a.sshAgent.Signers(); sshAgentCerts != nil {
 			signers = append(signers, sshAgentCerts...)
 		}
+	}
+	if ourCerts, _ := a.Signers(); ourCerts != nil {
+		signers = append(signers, ourCerts...)
 	}
 	// for every certificate create a new "auth method" and return them
 	m = make([]ssh.AuthMethod, 0)

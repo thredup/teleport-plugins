@@ -30,22 +30,23 @@ import (
 	"github.com/pborman/uuid"
 
 	"github.com/gravitational/teleport-plugins/lib"
-	"github.com/gravitational/teleport/lib/auth/proto"
+	"github.com/gravitational/teleport/api/client/proto"
+	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/trace"
 )
 
 // State represents the state of an access request.
-type State = services.RequestState
+type State = types.RequestState
 
 // StatePending is the state of a pending request.
-const StatePending State = services.RequestState_PENDING
+const StatePending State = types.RequestState_PENDING
 
 // StateApproved is the state of an approved request.
-const StateApproved State = services.RequestState_APPROVED
+const StateApproved State = types.RequestState_APPROVED
 
 // StateDenied is the state of a denied request.
-const StateDenied State = services.RequestState_DENIED
+const StateDenied State = types.RequestState_DENIED
 
 // Op describes the operation type of an event.
 type Op = proto.Operation
@@ -63,7 +64,7 @@ type DialOption = grpc.DialOption
 type CallOption = grpc.CallOption
 
 // Filter encodes request filtering parameters.
-type Filter = services.AccessRequestFilter
+type Filter = types.AccessRequestFilter
 
 // Event is a request event.
 type Event struct {
@@ -212,15 +213,15 @@ func (c *clt) GetRequests(ctx context.Context, fltr Filter) ([]Request, error) {
 
 func (c *clt) CreateRequest(ctx context.Context, user string, roles ...string) (Request, error) {
 	req := &services.AccessRequestV3{
-		Kind:    services.KindAccessRequest,
-		Version: services.V3,
+		Kind:    types.KindAccessRequest,
+		Version: types.V3,
 		Metadata: services.Metadata{
 			Name: uuid.New(),
 		},
 		Spec: services.AccessRequestSpecV3{
 			User:  user,
 			Roles: roles,
-			State: services.RequestState_PENDING,
+			State: types.RequestState_PENDING,
 		},
 	}
 	_, err := c.clt.CreateAccessRequest(ctx, req)

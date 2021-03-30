@@ -299,6 +299,7 @@ func New(c ServerConfig) (*Server, error) {
 		AccessPoint: c.AuthClient,
 		FIPS:        c.FIPS,
 		Emitter:     c.Emitter,
+		Clock:       c.Clock,
 	}
 
 	// Common term handlers.
@@ -409,6 +410,13 @@ func (s *Server) Dial() (net.Conn, error) {
 // GetClock returns server clock implementation
 func (s *Server) GetClock() clockwork.Clock {
 	return s.clock
+}
+
+// GetUtmpPath returns returns the optional override of the utmp and wtmp path.
+// These values are never set for the forwarding server because utmp and wtmp
+// are updated by the target server and not the forwarding server.
+func (s *Server) GetUtmpPath() (string, string) {
+	return "", ""
 }
 
 func (s *Server) Serve() {
@@ -668,7 +676,7 @@ func (s *Server) handleDirectTCPIPRequest(ctx context.Context, ch ssh.Channel, r
 	// forwarding is complete.
 	ctx, scx, err := srv.NewServerContext(ctx, s.connectionContext, s, s.identityContext)
 	if err != nil {
-		scx.Errorf("Unable to create connection context: %v.", err)
+		s.log.Errorf("Unable to create connection context: %v.", err)
 		s.stderrWrite(ch, "Unable to create connection context.")
 		return
 	}
@@ -704,8 +712,9 @@ func (s *Server) handleDirectTCPIPRequest(ctx context.Context, ch ssh.Channel, r
 			Code: events.PortForwardCode,
 		},
 		UserMetadata: events.UserMetadata{
-			Login: s.identityContext.Login,
-			User:  s.identityContext.TeleportUser,
+			Login:        s.identityContext.Login,
+			User:         s.identityContext.TeleportUser,
+			Impersonator: s.identityContext.Impersonator,
 		},
 		ConnectionMetadata: events.ConnectionMetadata{
 			LocalAddr:  s.sconn.LocalAddr().String(),
@@ -1041,8 +1050,9 @@ func (s *Server) handleX11Forward(ctx context.Context, ch ssh.Channel, req *ssh.
 			Type: events.X11ForwardEvent,
 		},
 		UserMetadata: events.UserMetadata{
-			Login: s.identityContext.Login,
-			User:  s.identityContext.TeleportUser,
+			Login:        s.identityContext.Login,
+			User:         s.identityContext.TeleportUser,
+			Impersonator: s.identityContext.Impersonator,
 		},
 		ConnectionMetadata: events.ConnectionMetadata{
 			LocalAddr:  s.sconn.LocalAddr().String(),
