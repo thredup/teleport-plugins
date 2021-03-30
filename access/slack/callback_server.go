@@ -114,8 +114,25 @@ func (s *CallbackServer) processCallback(rw http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Fix callback
+	fixMap := make(map[string]json.RawMessage)
+	if err := json.Unmarshal(payload, &fixMap); err != nil {
+		log.WithError(err).Error("Failed to parse json body")
+		http.Error(rw, "", http.StatusBadRequest)
+		return
+	}
+
+	delete(fixMap, "state")
+	fixedJSON, err := json.Marshal(fixMap)
+	if err != nil {
+		log.WithError(err).Error("Failed to fix json body")
+		http.Error(rw, "", http.StatusBadRequest)
+		return
+	}
+
+	// Continue processing callback
 	var cb slack.InteractionCallback
-	if err := json.Unmarshal(payload, &cb); err != nil {
+	if err := json.Unmarshal(fixedJSON, &cb); err != nil {
 		log.WithError(err).Error("Failed to parse json body")
 		http.Error(rw, "", http.StatusBadRequest)
 		return
