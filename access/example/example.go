@@ -90,12 +90,24 @@ func run(configPath string) error {
 				eprintln("Handling request: %+v", req)
 				whitelisted := false
 			CheckWhitelist:
-				for _, user := range conf.Whitelist {
-					if req.User == user {
-						whitelisted = true
-						break CheckWhitelist
+
+				/// Check for whitelisted users
+				// for _, user := range conf.Whitelist {
+				// 	if req.User == user {
+				// 		whitelisted = true
+				// 		break CheckWhitelist
+				// 	}
+				// }
+				// Check fro whitelisted roles
+				for _, role_from_list := range conf.Whitelist {
+					for _, role_from_request := range req.Roles {
+						if role_from_request == role_from_list {
+							whitelisted = true
+							break CheckWhitelist
+						}
 					}
 				}
+
 				params := access.RequestStateParams{
 					Delegator: "example",
 					Annotations: map[string][]string{
