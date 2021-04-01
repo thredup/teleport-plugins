@@ -108,23 +108,23 @@ func run(configPath string) error {
 					}
 				}
 
-				params := access.RequestStateParams{
-					Delegator: "example",
-					Annotations: map[string][]string{
-						"strategy": []string{"whitelist"},
-					},
-				}
 				if whitelisted {
-					eprintln("User %q in whitelist, approving request...", req.User)
+					params := access.RequestStateParams{
+						Delegator: "example",
+						Annotations: map[string][]string{
+							"strategy": []string{"whitelist"},
+						},
+					}
+					eprintln("Role %q in whitelist, approving request...", role_from_request)
 					params.State = access.StateApproved
 					params.Reason = "user in whitelist"
+
+					if err := client.SetRequestStateExt(ctx, req.ID, params); err != nil {
+						return trace.Wrap(err)
+					}
+
 				} else {
-					eprintln("User %q not in whitelist, denying request...", req.User)
-					params.State = access.StateDenied
-					params.Reason = "user not in whitelist"
-				}
-				if err := client.SetRequestStateExt(ctx, req.ID, params); err != nil {
-					return trace.Wrap(err)
+					eprintln("Role %q not in whitelist, manula approval required...", role_from_request)
 				}
 				eprintln("ok.")
 			case access.OpDelete:
