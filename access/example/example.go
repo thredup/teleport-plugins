@@ -115,7 +115,7 @@ func run(configPath string) error {
 					}
 					eprintln("Role %q in whitelist, approving request...", requested_role)
 					params.State = access.StateApproved
-					params.Reason = "rele in whitelist"
+					params.Reason = "Role found in whitelist"
 
 					if err := client.SetRequestStateExt(ctx, req.ID, params); err != nil {
 						return trace.Wrap(err)
