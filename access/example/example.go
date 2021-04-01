@@ -89,8 +89,8 @@ func run(configPath string) error {
 				// StatePending in our filter, only pending requests should appear here.
 				eprintln("Handling request: %+v", req)
 				whitelisted := false
-				requested_role := ""
-
+				requested_role := req.Roles[0]
+			CheckWhitelist:
 				/// Check for whitelisted users
 				// for _, user := range conf.Whitelist {
 				// 	if req.User == user {
@@ -100,11 +100,9 @@ func run(configPath string) error {
 				// }
 				// Check fro whitelisted roles
 				for _, role_from_list := range conf.Whitelist {
-					for _, role_from_request := range req.Roles {
-						if role_from_request == role_from_list {
-							requested_role = role_from_request
-							whitelisted = true
-						}
+					if requested_role == role_from_list {
+						whitelisted = true
+						break CheckWhitelist
 					}
 				}
 
