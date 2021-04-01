@@ -89,7 +89,7 @@ func run(configPath string) error {
 				// StatePending in our filter, only pending requests should appear here.
 				eprintln("Handling request: %+v", req)
 				whitelisted := false
-			CheckWhitelist:
+				requested_role := ""
 
 				/// Check for whitelisted users
 				// for _, user := range conf.Whitelist {
@@ -102,8 +102,8 @@ func run(configPath string) error {
 				for _, role_from_list := range conf.Whitelist {
 					for _, role_from_request := range req.Roles {
 						if role_from_request == role_from_list {
+							requested_role = role_from_request
 							whitelisted = true
-							break CheckWhitelist
 						}
 					}
 				}
@@ -115,7 +115,7 @@ func run(configPath string) error {
 							"strategy": []string{"whitelist"},
 						},
 					}
-					eprintln("Role %q in whitelist, approving request...", role_from_request)
+					eprintln("Role %q in whitelist, approving request...", requested_role)
 					params.State = access.StateApproved
 					params.Reason = "user in whitelist"
 
@@ -124,7 +124,7 @@ func run(configPath string) error {
 					}
 
 				} else {
-					eprintln("Role %q not in whitelist, manula approval required...", role_from_request)
+					eprintln("Role %q not in whitelist, manula approval required...", requested_role)
 				}
 				eprintln("ok.")
 			case access.OpDelete:
