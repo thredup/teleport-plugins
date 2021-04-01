@@ -124,7 +124,7 @@ func run(configPath string) error {
 					}
 
 				} else {
-					eprintln("Role %q not in whitelist, manula approval required...", requested_role)
+					eprintln("Role %q not in whitelist, manual approval required...", requested_role)
 				}
 				eprintln("ok.")
 			case access.OpDelete:
